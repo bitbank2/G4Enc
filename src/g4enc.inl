@@ -19,7 +19,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
-#include "G4Enc.h"
+#include "G4ENCODER.h"
 
 /* Number of consecutive 1 bits in a byte from MSB to LSB */
 static uint8_t bitcount[256] =
@@ -120,39 +120,20 @@ static const uint8_t ucMirror[256] PROGMEM =
 
 static void G4ENCInsertCode(BUFFERED_BITS *bb, BIGUINT ulCode, int iLen)
 {
-#ifdef _64BITS
-    if ((bb->ulBitOff + iLen) > 64) // need to write data
-    {
-        bb->ulBits |= (ulCode >> (bb->ulBitOff + iLen - 64)); // partial bits on first word
-        *(uint64_t*)bb->pBuf = PILBSWAP64(bb->ulBits);
-        bb->pBuf += 8;
-        bb->ulBits = ulCode << (64 - (bb->ulBitOff + iLen));
-        bb->ulBitOff += iLen - 64;
-    }
-    else
-    {
-        bb->ulBits |= (ulCode << (64 - bb->ulBitOff - iLen));
+    if ((bb->ulBitOff + iLen) > REGISTER_WIDTH) { // need to write data
+        bb->ulBits |= (ulCode >> (bb->ulBitOff + iLen - REGISTER_WIDTH)); // partial bits on first word
+        *(BIGUINT *)bb->pBuf = __builtin_bswap32(bb->ulBits);
+        bb->pBuf += sizeof(BIGUINT);
+        bb->ulBits = ulCode << ((REGISTER_WIDTH*2) - (bb->ulBitOff + iLen));
+        bb->ulBitOff += iLen - REGISTER_WIDTH;
+    } else {
+        bb->ulBits |= (ulCode << (REGISTER_WIDTH - bb->ulBitOff - iLen));
         bb->ulBitOff += iLen;
     }
-#else
-    if ((bb->ulBitOff + iLen) > 32) // need to write data
-      {
-      bb->ulBits |= (ulCode >> (bb->ulBitOff + iLen - 32)); // partial bits on first word
-      *bb->pBuf++ = (unsigned char)(bb->ulBits >> 24);
-      *bb->pBuf++ = (unsigned char)(bb->ulBits >> 16);
-      *bb->pBuf++ = (unsigned char)(bb->ulBits >> 8);
-      *bb->pBuf++ = (unsigned char)bb->ulBits;
-      bb->ulBits = ulCode << (64 - (bb->ulBitOff + iLen));
-      bb->ulBitOff += iLen - 32;
-      }
-   else
-      {
-      bb->ulBits |= (ulCode << (32 - bb->ulBitOff - iLen));
-      bb->ulBitOff += iLen;
-      }
-#endif
 } /* G4ENCInsertCode() */
-
+//
+// Flush any buffered bits to the output
+//
 void G4ENCFlushBits(BUFFERED_BITS *bb)
 {
     while (bb->ulBitOff >= 8)
@@ -165,7 +146,9 @@ void G4ENCFlushBits(BUFFERED_BITS *bb)
    bb->ulBitOff = 0;
    bb->ulBits = 0;
 } /* G4ENCFlushBits() */
-
+//
+// Internal function to add a WHITE pixel run
+//
 void G4ENCAddWhite(int iLen, BUFFERED_BITS *bb)
 {
 while (iLen >= 64)
@@ -186,8 +169,10 @@ while (iLen >= 64)
    /* Add the terminating code */
     G4ENCInsertCode(bb, huff_white[iLen*2], huff_white[iLen*2+1]);
 } /* G4ENCAddWhite() */
-
-void G4ENCAddBlack(int iLen, BUFFERED_BITS *bb)
+//
+// Internal function to add a BLACK pixel run
+//
+static void G4ENCAddBlack(int iLen, BUFFERED_BITS *bb)
 {
 while (iLen >= 64)
    {
@@ -207,29 +192,40 @@ while (iLen >= 64)
    /* Add the terminating code */
     G4ENCInsertCode(bb, huff_black[iLen*2], huff_black[iLen*2+1]);
 } /* PILAddBlack() */
-
-int G4ENC_Init(G4ENCIMAGE *pImage, int iWidth, int iHeight, int iBitDirection, G4ENC_WRITE_CALLBACK *pfnWrite, uint8_t *pOut, int iOutSize)
+//
+// Initialize the compressor
+// This must be called before adding data to the output
+//
+int G4ENC_init(G4ENCIMAGE *pImage, int iWidth, int iHeight, int iBitDirection, G4ENC_WRITE_CALLBACK *pfnWrite, uint8_t *pOut, int iOutSize)
 {
     int iError = G4ENC_SUCCESS;
     
     if (pImage == NULL || iWidth > G4ENC_MAX_WIDTH || iHeight <= 0 || (iBitDirection != G4ENC_LSB_FIRST && iBitDirection != G4ENC_MSB_FIRST))
         return G4ENC_INVALID_PARAMETER;
     pImage->iWidth = iWidth; // image size
-    pImage->iWidth = iHeight;
+    pImage->iHeight = iHeight;
+    pImage->pCur = pImage->CurFlips;
+    pImage->pRef = pImage->RefFlips;
     pImage->ucFillOrder = (uint8_t)iBitDirection;
     pImage->pfnWrite = pfnWrite; // optional output write callback
     pImage->pOutBuf = pOut; // optional output buffer
     pImage->iOutSize = iOutSize; // output buffer pre-allocated size
+    pImage->iDataSize = 0; // no data yet
     pImage->y = 0;
-    for (int i=0; i<G4ENC_MAX_WIDTH; i++)
+    for (int i=0; i<G4ENC_MAX_WIDTH; i++) {
         pImage->RefFlips[i] = iWidth;
+        pImage->CurFlips[i] = iWidth;
+    }
     pImage->bb.pBuf = pImage->ucFileBuf;
     pImage->bb.ulBits = 0;
     pImage->bb.ulBitOff = 0;
     pImage->iError = iError;
     return iError;
-} /* G4ENC_Init() */
-
+} /* G4ENC_init() */
+//
+// Internal function to convert uncompressed 1-bit per pixel data
+// into the run-end data needed to feed the G4 encoder
+//
 static void G4ENCEncodeLine(unsigned char *buf, int xsize, int16_t *pDest)
 {
 int iCount, xborder;
@@ -260,7 +256,7 @@ int16_t x;
          iCount--;
          continue; /* Keep doing white until color change */
          }
-      c = 255-c; /* flip color to count black pixels */
+      c = ~c; /* flip color to count black pixels */
    /* Store the white run length */
       xborder -= iLen;
       if (xborder < 0)
@@ -281,14 +277,14 @@ doblack:
          iLen += cBits; /* Adjust length */
          cBits = 8;
          c = *buf++;  /* Get another data byte */
-         c = 255-c;   /* Flip color to find black */
+         c = ~c;   /* Flip color to find black */
          iCount--;
          if (iCount < 0)
             break;
          goto doblack;
          }
    /* Store the black run length */
-      c = 255-c;       /* Flip color again to find white pixels */
+      c = ~c;       /* Flip color again to find white pixels */
       xborder -= iLen;
       if (xborder < 0)
          {
@@ -302,17 +298,23 @@ doblack:
 
    x += iLen;
    *pDest++ = x;
-   *pDest++ = x; // store a few more XSIZE to end the line
-   *pDest++ = x;
-   *pDest++ = x;
+   *pDest++ = x; // Store a few more XSIZE to end the line
+   *pDest++ = x; // so that the compressor doesn't go past
+   *pDest++ = x; // the end of the line
 } /* G4ENCEncodeLine() */
-
-int G4ENC_AddLine(G4ENCIMAGE *pImage, uint8_t *pPixels)
+//
+// Compress a line of pixels and add it to the output
+// the input format is expected to be MSB (most significant bit) first
+// for example, pixel 0 is in byte 0 at bit 7 (0x80)
+// Returns G4ENC_SUCCESS for each line if all is well and G4ENC_IMAGE_COMPLETE
+// for the last line
+//
+int G4ENC_addLine(G4ENCIMAGE *pImage, uint8_t *pPixels)
 {
 int16_t a0, a0_c, b2, a1;
 int dx;
 int xsize, iErr;
-int iCur, iRef;
+int iCur, iRef, iLen;
 int iHighWater;
 int16_t *CurFlips, *RefFlips;
 BUFFERED_BITS bb;
@@ -327,7 +329,7 @@ BUFFERED_BITS bb;
     iErr = 0;
     xsize = pImage->iWidth; /* For performance reasons */
 
-    iHighWater = OUTPUT_BUF_SIZE - 4;
+    iHighWater = OUTPUT_BUF_SIZE - 8;
     // Convert the incoming line of pixels into run-end data
     G4ENCEncodeLine(pPixels, pImage->iWidth, CurFlips);
 
@@ -387,20 +389,56 @@ BUFFERED_BITS bb;
                } /* vertical mode */
             } /* horiz/vert mode */
          } /* while x < xsize */
-   if ((int)(bb.pBuf-pImage->ucFileBuf) >= iHighWater) // need to dump some data
+    iLen = (int)(bb.pBuf-pImage->ucFileBuf);
+   if (iLen >= iHighWater) // need to dump some data
       {
-      iErr = G4ENC_DATA_OVERFLOW; // we don't have a better error
+          // Our internal buffer is full, do we copy it to the user supplied buffer or pass it to the WRITE callback?
+          if (pImage->pfnWrite) { // pass the data to the callback
+              (*pImage->pfnWrite)(pImage->ucFileBuf, iLen);
+          } else { // the user supplied a buffer check; if we hit the end
+              if (pImage->iDataSize + iLen >= pImage->iOutSize) {// not enough space
+                  pImage->iError = iErr = G4ENC_DATA_OVERFLOW; // we don't have a better error
+                  return iErr;
+              }
+              // we're good to go
+              memcpy(&pImage->pOutBuf[pImage->iDataSize], pImage->ucFileBuf, iLen);
+          }
+          pImage->iDataSize += iLen;
+          bb.pBuf = pImage->ucFileBuf; // reset to start of output buffer
       }
     if (pImage->y == pImage->iHeight-1) { // last line of image
       /* Add two EOL's to the end for RTC */
         G4ENCInsertCode(&bb, 1, 12); /* EOL */
         G4ENCInsertCode(&bb, 1, 12); /* EOL */
-        G4ENCFlushBits(&bb);
-        pImage->iDataSize += (int)(bb.pBuf - pImage->ucFileBuf);
+        G4ENCFlushBits(&bb); // output the final buffered bits
+        // wrap up final output
+        iLen = (int)(bb.pBuf-pImage->ucFileBuf);
+          if (pImage->pfnWrite) { // pass the data to the callback
+              (*pImage->pfnWrite)(pImage->ucFileBuf, iLen);
+          } else { // the user supplied a buffer; check if we hit the end
+              if (pImage->iDataSize + iLen >= pImage->iOutSize) {// not enough space
+                  pImage->iError = iErr = G4ENC_DATA_OVERFLOW; // we don't have a better error
+                  return iErr;
+              }
+          // we're good to go
+          memcpy(&pImage->pOutBuf[pImage->iDataSize], pImage->ucFileBuf, iLen);
+          } // user supplied buffer
+        pImage->iDataSize += iLen;
         iErr = G4ENC_IMAGE_COMPLETE;
     }
     pImage->pCur = RefFlips; // swap current and reference lines
     pImage->pRef = CurFlips;
     pImage->y++;
+    memcpy(&pImage->bb, &bb, sizeof(bb));
     return iErr;
-} /* G4ENC_AddLine() */
+} /* G4ENC_addLine() */
+//
+// Returns the number of bytes of G4 created by the encoder
+//
+int G4ENC_getOutSize(G4ENCIMAGE *pImage)
+{
+    int iSize = 0;
+    if (pImage != NULL)
+        iSize = pImage->iDataSize;
+    return iSize;
+} /* getOutSize() */

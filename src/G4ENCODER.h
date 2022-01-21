@@ -1,5 +1,5 @@
-#ifndef __G4ENC__
-#define __G4ENC__
+#ifndef __G4ENCODER__
+#define __G4ENCODER__
 #if defined( __MACH__ ) || defined( __LINUX__ )
 #include <stdlib.h>
 #include <string.h>
@@ -74,9 +74,9 @@ typedef struct g4enc_image_tag
 
 #ifdef __cplusplus
 //
-// The G4Enc class wraps portable C code which does the actual work
+// The G4ENCODER class wraps portable C code which does the actual work
 //
-class G4ENC
+class G4ENCODER
 {
   public:
     int init(int iWidth, int iHeight, int iBitDirection, G4ENC_WRITE_CALLBACK *pfnWrite, uint8_t *pOut, int iOutSize);
@@ -106,4 +106,4 @@ int G4ENC_getOutSize(G4ENCIMAGE *pImage);
 // Must be a 32-bit target processor
 #define REGISTER_WIDTH 32
 
-#endif // __G4ENC__
+#endif // __G4ENCODER__

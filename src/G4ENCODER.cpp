@@ -1,5 +1,5 @@
 //
-// G4ENC
+// G4ENCODER
 // A CCITT G4 image encoder library
 // written by Larry Bank
 // bitbank@pobox.com
@@ -19,7 +19,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
-#include "G4Enc.h"
+#include "G4ENCODER.h"
 
 // forward references
 int G4ENC_init(G4ENCIMAGE *pImage, int iWidth, int iHeight, int iBitDirection, G4ENC_WRITE_CALLBACK *pfnWrite, uint8_t *pOut, int iOutSize);
@@ -30,27 +30,28 @@ int G4ENC_getOutSize(G4ENCIMAGE *pImage);
 
 #include "g4enc.inl"
 
-int G4ENC::init(int iWidth, int iHeight, int iBitDirection, G4ENC_WRITE_CALLBACK *pfnWrite, uint8_t *pOut, int iOutSize)
+int G4ENCODER::init(int iWidth, int iHeight, int iBitDirection, G4ENC_WRITE_CALLBACK *pfnWrite, uint8_t *pOut, int iOutSize)
 {
 	return G4ENC_init(&_g4, iWidth, iHeight, iBitDirection, pfnWrite, pOut, iOutSize);
 } /* init() */
 
-int G4ENC::getTIFFHeaderSize()
+int G4ENCODER::getTIFFHeaderSize()
 {
 	return 0; // DEBUG
 } /* getTIFFHeaderSize() */
 
-int G4ENC::getTIFFHeader(uint8_t *pOut)
+int G4ENCODER::getTIFFHeader(uint8_t *pOut)
 {
 	return 0; // DEBUG
 } /* getTIFFHeader() */
 
-int G4ENC::addLine(uint8_t *pPixels)
+int G4ENCODER::addLine(uint8_t *pPixels)
 {
 	return G4ENC_addLine(&_g4, pPixels);
 } /* addLine() */
 
-int G4ENC::getOutSize()
+int G4ENCODER::getOutSize()
 {
 	return _g4.iDataSize;
 } /* getOutSize() */
+
