@@ -27,7 +27,7 @@ int G4ENC_getTIFFHeaderSize(G4ENCIMAGE *pImage);
 int G4ENC_getTIFFHeader(G4ENCIMAGE *pImage, uint8_t *pOut);
 int G4ENC_addLine(G4ENCIMAGE *pImage, uint8_t *pPixels);
 int G4ENC_getOutSize(G4ENCIMAGE *pImage);
-
+void G4ENC_getOBDLine(int iWidth, uint8_t *pImage, int iLine, uint8_t *pPixels);
 #include "g4enc.inl"
 
 int G4ENCODER::init(int iWidth, int iHeight, int iBitDirection, G4ENC_WRITE_CALLBACK *pfnWrite, uint8_t *pOut, int iOutSize)
@@ -37,12 +37,12 @@ int G4ENCODER::init(int iWidth, int iHeight, int iBitDirection, G4ENC_WRITE_CALL
 
 int G4ENCODER::getTIFFHeaderSize()
 {
-	return 0; // DEBUG
+	return (G4ENC_TAG_COUNT * 12) + 14 + strlen(SOFTWARE);
 } /* getTIFFHeaderSize() */
 
 int G4ENCODER::getTIFFHeader(uint8_t *pOut)
 {
-	return 0; // DEBUG
+	return G4ENC_getTIFFHeader(&_g4, pOut);
 } /* getTIFFHeader() */
 
 int G4ENCODER::addLine(uint8_t *pPixels)
@@ -55,3 +55,7 @@ int G4ENCODER::getOutSize()
 	return _g4.iDataSize;
 } /* getOutSize() */
 
+void G4ENCODER::getOBDLine(int iWidth, uint8_t *pImage, int iLine, uint8_t *pPixels)
+{
+    return G4ENC_getOBDLine(iWidth, pImage, iLine, pPixels);
+} /* getOBDLine() */

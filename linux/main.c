@@ -1,7 +1,9 @@
 // G4 Encoder demo
 // Written by Larry Bank
 // 
-// Will create a 640x480 TIFF G4 image on the fly
+// Compresses a given Windows BMP fill into T.6 (CCITT G4) data
+// It can output a block of raw compressed data or if the name given
+// in the second parameter ends in ".tif", it will add a TIFF header
 //
 #include <stdint.h>
 #include <string.h>
@@ -105,18 +107,20 @@ int main(int argc, char *argv[])
 {
 long lTime;
 int rc;
-uint8_t ucTemp[4096];
+uint8_t *pTemp;
 uint8_t *pBitmap;
-int iWidth, iHeight, iBpp, iPitch;
+int iSize, iWidth, iHeight, iBpp, iPitch;
 uint8_t ucPalette[1024];
 FILE *oHandle;
     
     printf("G4 Encoder demo\n");
-
     printf("G4ENCIMAGE Structure size = %d bytes\n", (int)sizeof(G4ENCIMAGE));
 
     if (argc != 3) {
         printf("Usage: g4demo <infile> <outfile>\n");
+        printf("The input file should be a 1-bpp Windows BMP file\n");
+        printf("The output file will be a TIFF file if the name ends in .tif,\n");
+        printf("otherwise it will be just the compressed image data.\n");
         return 0;
     }
     pBitmap = ReadBMP(argv[1], &iWidth, &iHeight, &iBpp, ucPalette);
@@ -126,8 +130,10 @@ FILE *oHandle;
     }
     if (pBitmap != NULL) {
         iPitch = (iWidth+7)>>3;
+        iSize = iPitch * iHeight; // allocate enough to hold an uncompressed copy
+        pTemp = (uint8_t *)malloc(iSize);
         lTime = micros();
-        rc = G4ENC_init(&g4, iWidth, iHeight, G4ENC_MSB_FIRST, NULL, ucTemp, sizeof(ucTemp));
+        rc = G4ENC_init(&g4, iWidth, iHeight, G4ENC_MSB_FIRST, NULL, pTemp, iSize);
         if (rc == G4ENC_SUCCESS) {
             for (int i=0; i<iHeight && rc == G4ENC_SUCCESS; i++) {
                 rc = G4ENC_addLine(&g4, &pBitmap[i * iPitch]);
@@ -141,7 +147,15 @@ FILE *oHandle;
             printf("Error opening output file %s\n", argv[2]);
             return 0;
         }
-        fwrite(ucTemp, 1, G4ENC_getOutSize(&g4), oHandle);
+        if (memcmp(&argv[2][strlen(argv[2])-4], ".tif", 4) == 0) {
+            // output file is requested to be a TIFF, write the header first
+            printf("Output file requested to be a TIFF; adding header...\n");
+            uint8_t ucTemp[256];
+            G4ENC_getTIFFHeader(&g4, ucTemp);
+            iSize = G4ENC_getTIFFHeaderSize();
+            fwrite(ucTemp, 1, iSize, oHandle);
+        }
+        fwrite(pTemp, 1, G4ENC_getOutSize(&g4), oHandle);
         fclose(oHandle);
     }
     return 0;

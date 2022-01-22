@@ -28,6 +28,10 @@
 //
 
 /* Defines and variables */
+#define G4ENC_TAG_COUNT 11
+#define G4ENC_TAG_ASCII 2
+#define G4ENC_TAG_SHORT 3
+#define G4ENC_TAG_LONG 4
 #define OUTPUT_BUF_SIZE 1024
 #define G4ENC_MAX_WIDTH 1024
 #define G4ENC_MSB_FIRST     1
@@ -84,16 +88,18 @@ class G4ENCODER
     int getTIFFHeader(uint8_t *pOut);
     int addLine(uint8_t *pPixels);
     int getOutSize();
+    void getOBDLine(int iWidth, uint8_t *pImage, int iLine, uint8_t *pPixels);
 
   private:
     G4ENCIMAGE _g4;
 };
 #else
 int G4ENC_init(G4ENCIMAGE *pImage, int iWidth, int iHeight, int iBitDirection, G4ENC_WRITE_CALLBACK *pfnWrite, uint8_t *pOut, int iOutSize);
-int G4ENC_getTIFFHeaderSize(G4ENCIMAGE *pImage);
+int G4ENC_getTIFFHeaderSize(void);
 int G4ENC_getTIFFHeader(G4ENCIMAGE *pImage, uint8_t *pOut);
 int G4ENC_addLine(G4ENCIMAGE *pImage, uint8_t *pPixels);
 int G4ENC_getOutSize(G4ENCIMAGE *pImage);
+void G4ENC_getOBDLine(int iWidth, uint8_t *pImage, int iLine, uint8_t *pPixels);
 #endif
 
 // Due to unaligned memory causing an exception, we have to do these macros the slow way

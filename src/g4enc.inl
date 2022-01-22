@@ -100,7 +100,7 @@ static const short huff_bmuc[82] =
         0x17,12,0x1c,12,0x1d,12,0x1e,12,0x1f,12};          /* 2304,2368,2432,2496,2560 */
 
 /* Table of byte flip values to mirror-image incoming CCITT data */
-static const uint8_t ucMirror[256] PROGMEM =
+static const uint8_t ucMirror[256] =
      {0, 128, 64, 192, 32, 160, 96, 224, 16, 144, 80, 208, 48, 176, 112, 240,
       8, 136, 72, 200, 40, 168, 104, 232, 24, 152, 88, 216, 56, 184, 120, 248,
       4, 132, 68, 196, 36, 164, 100, 228, 20, 148, 84, 212, 52, 180, 116, 244,
@@ -117,6 +117,8 @@ static const uint8_t ucMirror[256] PROGMEM =
       11, 139, 75, 203, 43, 171, 107, 235, 27, 155, 91, 219, 59, 187, 123, 251,
       7, 135, 71, 199, 39, 167, 103, 231, 23, 151, 87, 215, 55, 183, 119, 247,
       15, 143, 79, 207, 47, 175, 111, 239, 31, 159, 95, 223, 63, 191, 127, 255};
+
+const char *SOFTWARE = (char *)"Created with G4ENCODER by Larry Bank";
 
 static void G4ENCInsertCode(BUFFERED_BITS *bb, BIGUINT ulCode, int iLen)
 {
@@ -302,6 +304,16 @@ doblack:
    *pDest++ = x; // so that the compressor doesn't go past
    *pDest++ = x; // the end of the line
 } /* G4ENCEncodeLine() */
+
+//
+// Reverse the bit order of the data
+//
+static void G4ENCReverse(uint8_t *pData, int iLen)
+{
+    for (int i=0; i<iLen; i++) {
+        pData[i] = ucMirror[pData[i]];
+    }
+} /* G4ENCReverse() */
 //
 // Compress a line of pixels and add it to the output
 // the input format is expected to be MSB (most significant bit) first
@@ -391,7 +403,10 @@ BUFFERED_BITS bb;
          } /* while x < xsize */
     iLen = (int)(bb.pBuf-pImage->ucFileBuf);
    if (iLen >= iHighWater) // need to dump some data
-      {
+   {
+       if (pImage->ucFillOrder == G4ENC_LSB_FIRST) { // need to reverse the bits
+           G4ENCReverse(pImage->ucFileBuf, iLen);
+       }
           // Our internal buffer is full, do we copy it to the user supplied buffer or pass it to the WRITE callback?
           if (pImage->pfnWrite) { // pass the data to the callback
               (*pImage->pfnWrite)(pImage->ucFileBuf, iLen);
@@ -413,6 +428,9 @@ BUFFERED_BITS bb;
         G4ENCFlushBits(&bb); // output the final buffered bits
         // wrap up final output
         iLen = (int)(bb.pBuf-pImage->ucFileBuf);
+        if (pImage->ucFillOrder == G4ENC_LSB_FIRST) { // need to reverse the bits
+            G4ENCReverse(pImage->ucFileBuf, iLen);
+        }
           if (pImage->pfnWrite) { // pass the data to the callback
               (*pImage->pfnWrite)(pImage->ucFileBuf, iLen);
           } else { // the user supplied a buffer; check if we hit the end
@@ -433,6 +451,32 @@ BUFFERED_BITS bb;
     return iErr;
 } /* G4ENC_addLine() */
 //
+// Copy a line of pixels from a OneBitDisplay library image buffer
+// This function is here as a convenience to use image data from my
+// OneBitDisplay library since the memory is oriented differently.
+//
+void G4ENC_getOBDLine(int iWidth, uint8_t *pImage, int iLine, uint8_t *pPixels)
+{
+uint8_t *s, *d, uc, ucSrcMask, ucDstMask;
+int x;
+    
+    ucDstMask = 0x80;
+    ucSrcMask = 1 << (iLine & 7);
+    uc = 0;
+    d = pPixels;
+    s = &pImage[(iLine >> 3) * iWidth];
+    for (x=0; x<iWidth; x++) {
+        if (s[x] & ucSrcMask)
+            uc |= ucDstMask;
+        ucDstMask >>= 1;
+        if (ucDstMask == 0) { // time to write it
+            *d++ = ~uc;
+            uc = 0;
+            ucDstMask = 0x80;
+        }
+    } // for x
+} /* G4ENC_getOBDLine() */
+//
 // Returns the number of bytes of G4 created by the encoder
 //
 int G4ENC_getOutSize(G4ENCIMAGE *pImage)
@@ -442,3 +486,68 @@ int G4ENC_getOutSize(G4ENCIMAGE *pImage)
         iSize = pImage->iDataSize;
     return iSize;
 } /* getOutSize() */
+
+int G4ENC_getTIFFHeaderSize(void)
+{
+    return (G4ENC_TAG_COUNT * 12) + 14 + (int)strlen(SOFTWARE)+1;
+} /* getTIFFHeaderSize() */
+
+//
+// Add a TIFF tag to the header output
+//
+static int G4ENCAddTIFFTag(uint8_t *pOut, int iOff, int iTag, int iCount, uint8_t iType, int iValue)
+{
+    pOut[iOff] = (uint8_t)iTag; // uint16_t tag number
+    pOut[iOff+1] = (uint8_t)(iTag >> 8);
+    pOut[iOff+2] = iType; // uint16_t tag type
+    pOut[iOff+3] = 0x00;
+    pOut[iOff+4] = (uint8_t)iCount; // uint32_t value count
+    pOut[iOff+5] = (uint8_t)(iCount >> 8);
+    pOut[iOff+6] = (uint8_t)(iCount >> 16);
+    pOut[iOff+7] = (uint8_t)(iCount >> 24);
+    pOut[iOff+8] = (uint8_t)iValue; // uint32_t or uint16_t value
+    pOut[iOff+9] = (uint8_t)(iValue >> 8);
+    pOut[iOff+10] = (uint8_t)(iValue >> 16);
+    pOut[iOff+11] = (uint8_t)(iValue >> 24);
+    return iOff+12;
+} /* G4ENCAddTIFFTag() */
+
+int G4ENC_getTIFFHeader(G4ENCIMAGE *pImage, uint8_t *pOut)
+{
+    int iOff = 0; // output offset
+    
+    if (pImage == NULL || pOut == NULL)
+        return G4ENC_INVALID_PARAMETER;
+    
+    if (pImage->ucFillOrder != G4ENC_MSB_FIRST && pImage->ucFillOrder != G4ENC_LSB_FIRST)
+        return G4ENC_NOT_INITIALIZED;
+    
+    // Create a TIFF file header byte by byte, then tag by tags
+    pOut[iOff++] = 'I'; // Intel (little-endian) byte order
+    pOut[iOff++] = 'I';
+    pOut[iOff++] = 0x2a; // TIFF Version 4.2
+    pOut[iOff++] = 0x00;
+    pOut[iOff++] = 0x08; // uint32_t offset to IFD
+    pOut[iOff++] = 0x00;
+    pOut[iOff++] = 0x00;
+    pOut[iOff++] = 0x00;
+    pOut[iOff++] = G4ENC_TAG_COUNT; // uint16_t tag count
+    pOut[iOff++] = 0x00;
+    iOff = G4ENCAddTIFFTag(pOut, iOff, 256, 1, G4ENC_TAG_SHORT, pImage->iWidth);
+    iOff = G4ENCAddTIFFTag(pOut, iOff, 257, 1, G4ENC_TAG_SHORT, pImage->iHeight);
+    iOff = G4ENCAddTIFFTag(pOut, iOff, 258, 1, G4ENC_TAG_SHORT, 1); // bits per sample
+    iOff = G4ENCAddTIFFTag(pOut, iOff, 259, 1, G4ENC_TAG_SHORT, 4); // compression
+    iOff = G4ENCAddTIFFTag(pOut, iOff, 262, 1, G4ENC_TAG_SHORT, 0); // photometric interpretation - white is zero
+    iOff = G4ENCAddTIFFTag(pOut, iOff, 266, 1, G4ENC_TAG_SHORT, pImage->ucFillOrder); // bit fill order (direction)
+    iOff = G4ENCAddTIFFTag(pOut, iOff, 273, 1, G4ENC_TAG_LONG, 14+(G4ENC_TAG_COUNT*12)+(int)strlen(SOFTWARE)+1); // strip offsets
+    iOff = G4ENCAddTIFFTag(pOut, iOff, 277, 1, G4ENC_TAG_SHORT, 1); // samples per pixel
+    iOff = G4ENCAddTIFFTag(pOut, iOff, 278, 1, G4ENC_TAG_SHORT, pImage->iHeight); // rows per strip
+    iOff = G4ENCAddTIFFTag(pOut, iOff, 279, 1, G4ENC_TAG_SHORT, pImage->iDataSize); // strip byte counts
+    iOff = G4ENCAddTIFFTag(pOut, iOff, 305, (int)strlen(SOFTWARE)+1, G4ENC_TAG_ASCII, iOff+16); // Software
+    pOut[iOff++] = 0; // terminating IFD = 0x00000000
+    pOut[iOff++] = 0;
+    pOut[iOff++] = 0;
+    pOut[iOff++] = 0;
+    memcpy(&pOut[iOff], SOFTWARE, strlen(SOFTWARE)+1);
+    return G4ENC_SUCCESS;
+} /* G4ENC_getTIFFHeader() */
