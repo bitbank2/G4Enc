@@ -17,12 +17,12 @@ Features:
 ---------
 - Supports any MCU with at least 5K of free RAM
 - Simple API allows you to easily compress 1-bpp bitmaps and optionally write a TIFF file
-- Simple class and callback design allows you to easily add G4 compression to any project.
-- The C code doing the heavy lifting is completely portable and has no external dependencies.
+- Optional callback function allows working with huge images on memory constrained devices
+- The C code doing the heavy lifting is completely portable and has no external dependencies
+- Arduino C++ class wraps the C code to allow easy use in any project
 
 A note about G4 Compression:
 ----------------------------
-
 The G4 compression algorithm is lossless - the output image is exactly the same as the input image. It was designed to compress scanned documents - black lettering on a white background. The statistical model is based on that type of image, but it also does well with solid color graphics. It can compress images very effectively if the color changes (white->black or black->white) occur within +/-3 pixels of a color change on the line above. However, this breaks down for a one pixel checkerboard pattern and the compressed data will be larger than the original. So...dithered images will perform poorly with G4. If your image is similar to the one below, it will compress quite well compared to other lossless compression algorithms.
 
 ![G4ENC](/g4_example.jpg?raw=true "G4 Example")
