@@ -36,7 +36,7 @@ int G4ENCODER::init(int iWidth, int iHeight, int iBitDirection, G4ENC_WRITE_CALL
 
 int G4ENCODER::getTIFFHeaderSize()
 {
-	return (G4ENC_TAG_COUNT * 12) + 14 + strlen(SOFTWARE);
+	return G4ENC_getTIFFHeaderSize();
 } /* getTIFFHeaderSize() */
 
 int G4ENCODER::getTIFFHeader(uint8_t *pOut)

@@ -70,7 +70,7 @@ uint32_t ulDataSize; // available data
 typedef int (G4ENC_WRITE_CALLBACK)(uint8_t *pBuf, int iLen);
 
 //
-// our private structure to hold a TIFF image decode state
+// our private structure to hold a TIFF image encode state
 //
 typedef struct g4enc_image_tag
 {

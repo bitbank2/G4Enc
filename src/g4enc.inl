@@ -117,7 +117,7 @@ static const uint8_t ucMirror[256] =
       7, 135, 71, 199, 39, 167, 103, 231, 23, 151, 87, 215, 55, 183, 119, 247,
       15, 143, 79, 207, 47, 175, 111, 239, 31, 159, 95, 223, 63, 191, 127, 255};
 
-const char *SOFTWARE = (char *)"Created with G4ENCODER by Larry Bank";
+const char *SOFTWARE = "Created with G4ENCODER by Larry Bank";
 
 static void G4ENCInsertCode(BUFFERED_BITS *bb, BIGUINT ulCode, int iLen)
 {
@@ -152,46 +152,58 @@ void G4ENCFlushBits(BUFFERED_BITS *bb)
 //
 void G4ENCAddWhite(int iLen, BUFFERED_BITS *bb)
 {
+//    int iOldLen = iLen;
+//    int iBitLen = 0;
 while (iLen >= 64)
    {
        if (iLen >= 2560)
     {
         G4ENCInsertCode(bb, 0x1f, 12); /* Add the 2560 code */
         iLen -= 2560;
+//        iBitLen += 12;
     }
     else
       {
       int iCode;
       iCode = iLen >> 6; /* Makeup code = mult of 64 */
           G4ENCInsertCode(bb, huff_wmuc[iCode*2], huff_wmuc[iCode*2+1]);
+ //         iBitLen += huff_wmuc[iCode*2+1];
       iLen &= 63; /* Get the remainder */
       }
    }
    /* Add the terminating code */
     G4ENCInsertCode(bb, huff_white[iLen*2], huff_white[iLen*2+1]);
+ //   iBitLen += huff_white[iLen*2+1];
+ //   printf("white len %d in %d bits\n", iOldLen, iBitLen);
 } /* G4ENCAddWhite() */
 //
 // Internal function to add a BLACK pixel run
 //
 static void G4ENCAddBlack(int iLen, BUFFERED_BITS *bb)
 {
+//    int iBitLen = 0; // debugging the length
+//    int iOldLen = iLen;
 while (iLen >= 64)
    {
    if (iLen >= 2560)
       {
           G4ENCInsertCode(bb, 0x1f, 12); /* Add the 2560 code */
       iLen -= 2560;
+  //        iBitLen += 12;
       }
    else
       {
       int iCode;
       iCode = iLen >> 6; /* Makeup code = mult of 64 */
           G4ENCInsertCode(bb, huff_bmuc[iCode*2], huff_bmuc[iCode*2+1]);
+    //      iBitLen += huff_bmuc[iCode*2+1];
       iLen &= 63; /* Get the remainder */
       }
    }
    /* Add the terminating code */
     G4ENCInsertCode(bb, huff_black[iLen*2], huff_black[iLen*2+1]);
+ //   iBitLen += huff_black[iLen*2+1];
+ //   printf("black len %d in %d bits\n", iOldLen, iBitLen);
 } /* PILAddBlack() */
 //
 // Initialize the compressor
@@ -320,6 +332,7 @@ static void G4ENCReverse(uint8_t *pData, int iLen)
 // Returns G4ENC_SUCCESS for each line if all is well and G4ENC_IMAGE_COMPLETE
 // for the last line
 //
+//#define EXPERIMENT
 int G4ENC_addLine(G4ENCIMAGE *pImage, uint8_t *pPixels)
 {
 int16_t a0, a0_c, b2, a1;
@@ -356,14 +369,33 @@ BUFFERED_BITS bb;
             /* yes, do pass mode */
             a0 = b2;
             iRef += 2;
+#ifdef EXPERIMENT
+            G4ENCInsertCode(&bb, 4, 6); /* Pass code = 000100 */
+#else
             G4ENCInsertCode(&bb, 1, 4); /* Pass code = 0001 */
+#endif // EXPERIMENT
             }
          else /* Try vertical and horizontal mode */
             {
             dx = RefFlips[iRef] - a1;  /* b1 - a1 */
             if (dx > 3 || dx < -3) /* Horizontal mode */
                {
+#ifdef EXPERIMENT
+                   int w1 = CurFlips[iCur] - a0;
+                   int w2 = CurFlips[iCur+1] - CurFlips[iCur];
+                   if (w1 >= 1 && w2 >= 1 && w1+w2 <= 3) { // dither optimization
+                       G4ENCInsertCode(&bb, 4, 6); /* dither code = 000101, 000110 or 000111 */
+                   } else {
+                       G4ENCInsertCode(&bb, 1, 3); /* Horizontal code = 001 */
+                       printf("horizontal code\n");
+                       // use expansion bit idea
+                       if (w1 < 8 && w2 < 16) G4ENCInsertCode(&bb, 0, 8); // short
+                       else if (w1 < 64 && w2 < 256) G4ENCInsertCode(&bb, 0, 15); // medium
+                       else G4ENCInsertCode(&bb, 0, 24); // long
+                   }
+#else
                    G4ENCInsertCode(&bb, 1, 3); /* Horizontal code = 001 */
+               //    printf("horizontal code\n");
                if (a0_c) /* If currently black */
                   {
                       G4ENCAddBlack(CurFlips[iCur] - a0, &bb);
@@ -374,6 +406,7 @@ BUFFERED_BITS bb;
                       G4ENCAddWhite(CurFlips[iCur] - a0, &bb);
                       G4ENCAddBlack(CurFlips[iCur+1] - CurFlips[iCur], &bb);
                   }
+#endif
                a0 = CurFlips[iCur+1]; /* a0 = a2 */
                if (a0 != xsize)
                   {
@@ -488,7 +521,7 @@ int G4ENC_getOutSize(G4ENCIMAGE *pImage)
 
 int G4ENC_getTIFFHeaderSize(void)
 {
-    return (G4ENC_TAG_COUNT * 12) + 14 + (int)strlen(SOFTWARE)+1;
+    return ((G4ENC_TAG_COUNT * 12) + 14 + (int)strlen(SOFTWARE)+1);
 } /* getTIFFHeaderSize() */
 
 //
